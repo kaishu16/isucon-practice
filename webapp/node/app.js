@@ -10,6 +10,23 @@ const Promise = require('bluebird');
 const exec = require('child_process').exec;
 const crypto = require('crypto');
 const memcacheStore = require('connect-memcached')(session);
+const fs = require('fs');
+const pprof = require('pprof');
+
+async function prof() {
+  console.log("start to profile >>>");
+  const profile = await pprof.time.profile({
+    durationMillis: 15000,
+  });
+
+  const buf = await pprof.encode(profile);
+  fs.writeFile('wall.pb.gz', buf, (err) => {
+    if (err) {
+      throw err;
+    }
+  });
+  console.log("<<< finished to profile");
+}
 
 const app = express();
 const upload = multer({});
@@ -36,7 +53,7 @@ app.use(session({
   'saveUninitialized': true,
   'secret': process.env.ISUCONP_SESSION_SECRET || 'sendagaya',
   'store': new memcacheStore({
-    hosts: ['127.0.0.1:11211']
+    hosts: [`${process.env.ISUCONP_MEMCACHED_ADDRESS}`]
   })
 }));
 
@@ -299,7 +316,7 @@ app.get('/logout', (req, res) => {
 
 app.get('/', (req, res) => {
   getSessionUser(req).then((me) => {
-    db.query('SELECT `id`, `user_id`, `body`, `created_at`, `mime` FROM `posts` ORDER BY `created_at` DESC').then((posts) => {
+    db.query('SELECT `id`, `user_id`, `body`, `created_at`, `mime` FROM `posts` ORDER BY `created_at` DESC limit 40').then((posts) => {
       return makePosts(posts.slice(0, POSTS_PER_PAGE * 2));
     }).then((posts) => {
       res.render('index.ejs', { posts: filterPosts(posts), me: me, imageUrl: imageUrl});
@@ -450,6 +467,12 @@ app.get('/image/:id.:ext', (req, res) => {
     if ((req.params.ext === 'jpg' && post.mime === 'image/jpeg') ||
         (req.params.ext === 'png' && post.mime === 'image/png') ||
         (req.params.ext === 'gif' && post.mime === 'image/gif')) {
+
+      fs.writeFile(`../public/image/${post.id}.${req.params.ext}`, post.imgdata, (err) => {
+        if (err) throw err;
+        // console.log(`downloaded. file: ${post.id}.${req.params.ext}`);
+      });
+
       res.append('Content-Type', post.mime);
       res.send(post.imgdata);
     }
@@ -523,7 +546,14 @@ app.post('/admin/banned', (req, res) => {
   });
 });
 
+app.get('/monitor/', (req, res) => {
+  var text = fs.readFileSync("./.txt", 'utf8');
+  res.send("Hello World");
+});
+
 app.use(express.static('../public', {}));
 
-app.listen(8080);
+app.listen(8080, () => {
+  console.log(`ポート8080で待機中でごんす`)
+});
 

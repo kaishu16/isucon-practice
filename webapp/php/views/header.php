@@ -1,6 +1,6 @@
 <div class="header">
   <div class="isu-title">
-    <h1><a href="/">Iscogram</a></h1>
+    <h1><a href="/">IscogramPHP</a></h1>
   </div>
   <div class="isu-header-menu">
     <?php if (!isset($me)): ?>
