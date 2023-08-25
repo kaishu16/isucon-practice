@@ -20,3 +20,4 @@ portal/tmp
 .idea/
 webapp/node/node_modules/*
 webapp/logs/*
+webapp/public/image/*
