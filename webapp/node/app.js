@@ -10,23 +10,23 @@ const Promise = require('bluebird');
 const exec = require('child_process').exec;
 const crypto = require('crypto');
 const memcacheStore = require('connect-memcached')(session);
-const fs = require('fs');
-const pprof = require('pprof');
+// const fs = require('fs');
+// const pprof = require('pprof');
 
-async function prof() {
-  console.log("start to profile >>>");
-  const profile = await pprof.time.profile({
-    durationMillis: 15000,
-  });
+// async function prof() {
+//   console.log("start to profile >>>");
+//   const profile = await pprof.time.profile({
+//     durationMillis: 15000,
+//   });
 
-  const buf = await pprof.encode(profile);
-  fs.writeFile('wall.pb.gz', buf, (err) => {
-    if (err) {
-      throw err;
-    }
-  });
-  console.log("<<< finished to profile");
-}
+//   const buf = await pprof.encode(profile);
+//   fs.writeFile('wall.pb.gz', buf, (err) => {
+//     if (err) {
+//       throw err;
+//     }
+//   });
+//   console.log("<<< finished to profile");
+// }
 
 const app = express();
 const upload = multer({});
@@ -199,6 +199,33 @@ function makePost(post, options) {
   });
 }
 
+function makePost2(post, options) {
+  return new Promise((resolve, reject) => {
+    db.query('SELECT COUNT(*) AS `count` FROM `comments` WHERE `post_id` = ?', [post.id]).then((commentCount) => {
+      post.comment_count = commentCount.count || 0;
+      var query = 'SELECT * FROM `comments` WHERE `post_id` = ? ORDER BY `created_at` DESC';
+      if (!options.allComments) {
+        query += ' LIMIT 3';
+      }
+      return db.query(query, [post.id]).then((comments) => {
+        return Promise.all(comments.map((comment) => {
+          return makeComment(comment);
+        })).then((comments) => {
+          post.comments = comments;
+          return post;
+        });
+      })
+      .then((post) => {
+        return getUser(post.user_id).then((user) => {
+          post.user = user;
+          return post;
+        });
+      })
+      .then(resolve, reject);
+    }).catch(reject);
+  });
+}
+
 function filterPosts(posts) {
   return posts.filter((post) => post.user.del_flg === 0).slice(0, POSTS_PER_PAGE);
 }
@@ -217,6 +244,24 @@ function makePosts(posts, options) {
     }
     Promise.all(posts.map((post) => {
       return makePost(post, options);
+    })).then(resolve, reject);
+  });
+}
+
+function makePosts2(posts, options) {
+  if (typeof options === 'undefined') {
+    options = {};
+  }
+  if (typeof options.allComments === 'undefined') {
+    options.allComments = false;
+  }
+  return new Promise((resolve, reject) => {
+    if (posts.length === 0) {
+      resolve([]);
+      return;
+    }
+    Promise.all(posts.map((post) => {
+      return makePost2(post, options);
     })).then(resolve, reject);
   });
 }
@@ -316,8 +361,10 @@ app.get('/logout', (req, res) => {
 
 app.get('/', (req, res) => {
   getSessionUser(req).then((me) => {
-    db.query('SELECT `id`, `user_id`, `body`, `created_at`, `mime` FROM `posts` ORDER BY `created_at` DESC limit 40').then((posts) => {
-      return makePosts(posts.slice(0, POSTS_PER_PAGE * 2));
+    db.query('SELECT `id`, `user_id`, `body`, `created_at`, `mime` FROM `posts` ORDER BY `created_at` DESC').then((posts) => {
+      return makePosts2(posts.slice(0, POSTS_PER_PAGE * 2));
+      // db.query("SELECT p.id, p.user_id, p.body, p.created_at, p.mime, u.account_name FROM `posts` AS p JOIN `users` AS u ON (p.user_id = u.id) WHERE u.del_flg=0 ORDER BY p.created_at DESC LIMIT 40").then((posts) => {
+        // return makePosts2(posts);
     }).then((posts) => {
       res.render('index.ejs', { posts: filterPosts(posts), me: me, imageUrl: imageUrl});
     });
@@ -468,11 +515,6 @@ app.get('/image/:id.:ext', (req, res) => {
         (req.params.ext === 'png' && post.mime === 'image/png') ||
         (req.params.ext === 'gif' && post.mime === 'image/gif')) {
 
-      fs.writeFile(`../public/image/${post.id}.${req.params.ext}`, post.imgdata, (err) => {
-        if (err) throw err;
-        // console.log(`downloaded. file: ${post.id}.${req.params.ext}`);
-      });
-
       res.append('Content-Type', post.mime);
       res.send(post.imgdata);
     }
@@ -544,11 +586,6 @@ app.post('/admin/banned', (req, res) => {
       return;
     });
   });
-});
-
-app.get('/monitor/', (req, res) => {
-  var text = fs.readFileSync("./.txt", 'utf8');
-  res.send("Hello World");
 });
 
 app.use(express.static('../public', {}));
